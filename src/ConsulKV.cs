@@ -11,16 +11,21 @@ namespace FireflySoft.LeaderElection
     /// <summary>
     /// Consul KV相关
     /// </summary>
-    internal static class ConsulKV
+    internal class ConsulKV
     {
-        private static ConsulClient client = new ConsulClient();
+        private readonly ConsulClient client;
+
+        public ConsulKV(ConsulClient client)
+        {
+            this.client = client;
+        }
 
         /// <summary>
         /// 创建一个KVPair实例
         /// </summary>
         /// <param name="key"></param>
         /// <returns></returns>
-        public static KVPair Create(string key)
+        public KVPair Create(string key)
         {
             return new KVPair(key);
         }
@@ -33,7 +38,7 @@ namespace FireflySoft.LeaderElection
         /// <param name="waitIndex"></param>
         /// <param name="cancellationToken"></param>
         /// <returns></returns>
-        public static KVPair BlockGet(string key, TimeSpan waitTime, ulong waitIndex, CancellationToken cancellationToken = default(CancellationToken))
+        public KVPair BlockGet(string key, TimeSpan waitTime, ulong waitIndex, CancellationToken cancellationToken = default(CancellationToken))
         {
             return Retry(() =>
             {
@@ -51,7 +56,7 @@ namespace FireflySoft.LeaderElection
         /// <param name="kv"></param>
         /// <param name="cancellationToken"></param>
         /// <returns></returns>
-        public static bool Acquire(KVPair kv, CancellationToken cancellationToken = default(CancellationToken))
+        public bool Acquire(KVPair kv, CancellationToken cancellationToken = default(CancellationToken))
         {
             return Retry(() =>
             {
@@ -65,7 +70,7 @@ namespace FireflySoft.LeaderElection
         /// <returns>The get.</returns>
         /// <param name="key">Key.</param>
         /// <param name="cancellationToken">Cancellation token.</param>
-        public static KVPair Get(string key, CancellationToken cancellationToken = default(CancellationToken))
+        public KVPair Get(string key, CancellationToken cancellationToken = default(CancellationToken))
         {
             return Retry(() =>
             {
@@ -79,11 +84,11 @@ namespace FireflySoft.LeaderElection
         /// <param name="key"></param>
         /// <param name="cancellationToken"></param>
         /// <returns></returns>
-        public static bool Delete(string key, CancellationToken cancellationToken = default)
+        public bool Delete(string key, CancellationToken cancellationToken = default)
         {
             return Retry(() =>
             {
-                return client.KV.Delete(key,cancellationToken).Result.Response;
+                return client.KV.Delete(key, cancellationToken).Result.Response;
             }, 2);
         }
 
@@ -93,7 +98,7 @@ namespace FireflySoft.LeaderElection
         /// <returns>The session.</returns>
         /// <param name="checkId">Check identifier.</param>
         /// <param name="lockDelay">Lock delay.</param>
-        public static string CreateSession(string checkId, int lockDelay = 15)
+        public string CreateSession(string checkId, int lockDelay = 15)
         {
             return Retry(() =>
             {
@@ -110,7 +115,7 @@ namespace FireflySoft.LeaderElection
         /// 移除Session
         /// </summary>
         /// <returns></returns>
-        public static bool RemoveSession(string sessionId)
+        public bool RemoveSession(string sessionId)
         {
             return Retry(() =>
             {
@@ -118,7 +123,7 @@ namespace FireflySoft.LeaderElection
             }, 2);
         }
 
-        private static T Retry<T>(Func<T> func, int retryTimes)
+        private T Retry<T>(Func<T> func, int retryTimes)
         {
             int i = retryTimes;
             while (i > 0)

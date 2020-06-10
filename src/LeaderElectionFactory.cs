@@ -13,7 +13,7 @@ namespace FireflySoft.LeaderElection
         /// <returns></returns>
         public ILeaderElection Create(LeaderElectionOptions options)
         {
-            if (options == null || options.LeaderElectionType == 0)
+            if (options == null || options.LeaderElectionType == EnumLeaderElectionType.Consul)
             {
                 return new ConsulLeaderElection();
             }

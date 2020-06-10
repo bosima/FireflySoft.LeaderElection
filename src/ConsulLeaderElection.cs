@@ -17,7 +17,9 @@ namespace FireflySoft.LeaderElection
         private string _leaderElectionServicePrefix = "le:";
         private readonly TimeSpan _defaultWatchInterval = new TimeSpan(0, 0, 60);
         private readonly TimeSpan _confirmWatchInterval = new TimeSpan(0, 0, 10);
-        private LeaderElectionOptions _options;
+        private ConsulElectionOptions _options;
+        private ConsulService _consulService;
+        private ConsulKV _consulKV;
 
         /// <summary>
         /// 注册到Leader选举中
@@ -27,10 +29,14 @@ namespace FireflySoft.LeaderElection
         /// <param name="options"></param>
         public void Register(string serviceName, string serviceId, LeaderElectionOptions options)
         {
-            _options = options;
+            _options = (ConsulElectionOptions)options;
+
+            _consulService = new ConsulService(_options.ConsulClient);
+            _consulKV = new ConsulKV(_options.ConsulClient);
+
             _electionKey = string.Format("leader-election/{0}/leader", serviceName);
             _serviceId = serviceId;
-            _sessionCheckId = ConsulService.RegisterService(_leaderElectionServicePrefix + serviceId, _leaderElectionServicePrefix + serviceName, 10);
+            _sessionCheckId = _consulService.RegisterService(_leaderElectionServicePrefix + serviceId, _leaderElectionServicePrefix + serviceName, 10);
         }
 
         /// <summary>
@@ -47,26 +53,26 @@ namespace FireflySoft.LeaderElection
             // 创建一个关联到当前节点的Session
             if (!string.IsNullOrWhiteSpace(_sessionId))
             {
-                ConsulKV.RemoveSession(_sessionId);
+                _consulKV.RemoveSession(_sessionId);
             }
-            _sessionId = ConsulKV.CreateSession(_sessionCheckId, _options.ReElectionSilencePeriod);
+            _sessionId = _consulKV.CreateSession(_sessionCheckId, _options.ReElectionSilencePeriod);
 
             // 使用这个Session尝试去锁定选举KV
-            var kv = ConsulKV.Get(_electionKey, cancellationToken);
+            var kv = _consulKV.Get(_electionKey, cancellationToken);
             if (kv == null)
             {
-                kv = ConsulKV.Create(_electionKey);
+                kv = _consulKV.Create(_electionKey);
             }
 
             if (string.IsNullOrWhiteSpace(kv.Session))
             {
                 kv.Session = _sessionId;
                 kv.Value = Encoding.UTF8.GetBytes(_serviceId);
-                lockResult = ConsulKV.Acquire(kv, cancellationToken);
+                lockResult = _consulKV.Acquire(kv, cancellationToken);
             }
 
             // 无论参选成功与否，获取当前的Leader
-            var leaderKV = ConsulKV.Get(_electionKey, cancellationToken);
+            var leaderKV = _consulKV.Get(_electionKey, cancellationToken);
             if (leaderKV != null)
             {
                 currentLeaderId = Encoding.UTF8.GetString(leaderKV.Value);
@@ -92,7 +98,7 @@ namespace FireflySoft.LeaderElection
         /// <returns></returns>
         public bool Reset(CancellationToken cancellationToken = default)
         {
-            return ConsulKV.Delete(_electionKey, cancellationToken);
+            return _consulKV.Delete(_electionKey, cancellationToken);
         }
 
         /// <summary>
@@ -106,7 +112,7 @@ namespace FireflySoft.LeaderElection
             KVPair consulKv = (KVPair)state.Data;
             ulong waitIndex = consulKv == null ? 0 : consulKv.ModifyIndex++;
             TimeSpan waitTime = state.IsLeaderOnline ? _defaultWatchInterval : _confirmWatchInterval;
-            var newConsulKv = ConsulKV.BlockGet(_electionKey, waitTime, waitIndex, cancellationToken);
+            var newConsulKv = _consulKV.BlockGet(_electionKey, waitTime, waitIndex, cancellationToken);
 
             LeaderElectionState newState = null;
             if (newConsulKv != null)

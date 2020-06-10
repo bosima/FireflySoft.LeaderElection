@@ -11,15 +11,20 @@ namespace FireflySoft.LeaderElection
     /// <summary>
     /// Consul服务管理相关
     /// </summary>
-    internal static class ConsulService
+    internal  class ConsulService
     {
-        private static ConsulClient client = new ConsulClient();
+        private readonly ConsulClient client;
+
+        public ConsulService(ConsulClient client)
+        {
+            this.client = client;
+        }
 
         /// <summary>
         /// 更新服务健康检查的TTL
         /// </summary>
         /// <returns></returns>
-        public static void PassTTL(string serviceId)
+        public void PassTTL(string serviceId)
         {
             Retry(() =>
             {
@@ -32,7 +37,7 @@ namespace FireflySoft.LeaderElection
         /// 注销服务
         /// </summary>
         /// <param name="serviceId"></param>
-        public static bool DeregisterService(string serviceId)
+        public bool DeregisterService(string serviceId)
         {
             var deRegResult = Retry(() =>
             {
@@ -52,7 +57,7 @@ namespace FireflySoft.LeaderElection
         /// </summary>
         /// <param name="checkId"></param>
         /// <returns></returns>
-        public static bool DeregisterServiceCheck(string checkId)
+        public bool DeregisterServiceCheck(string checkId)
         {
             var deRegResult = Retry(() =>
             {
@@ -70,7 +75,7 @@ namespace FireflySoft.LeaderElection
         /// <summary>
         /// The ttl pass thread.
         /// </summary>
-        private static Thread ttlPassThread;
+        private Thread ttlPassThread;
 
         /// <summary>
         /// 注册服务，使用此方法注册的服务需要定时Pass TTL
@@ -79,7 +84,7 @@ namespace FireflySoft.LeaderElection
         /// <param name="serviceName"></param>
         /// <param name="ttl"></param>
         /// <returns></returns>
-        public static string RegisterService(string serviceId, string serviceName, int ttl)
+        public string RegisterService(string serviceId, string serviceName, int ttl)
         {
             var deRegResult = Retry(() =>
             {
@@ -153,7 +158,7 @@ namespace FireflySoft.LeaderElection
             return checkId;
         }
 
-        private static void Retry(Action action, int retryTimes)
+        private void Retry(Action action, int retryTimes)
         {
             int i = retryTimes;
             while (i > 0)
@@ -177,7 +182,7 @@ namespace FireflySoft.LeaderElection
             }
         }
 
-        private static T Retry<T>(Func<T> func, int retryTimes)
+        private T Retry<T>(Func<T> func, int retryTimes)
         {
             int i = retryTimes;
             while (i > 0)

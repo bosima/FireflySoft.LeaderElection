@@ -16,7 +16,7 @@
 
 ### 1、启动本机Consul
 
-当前的版本依赖本机Consul，后续会支持配置远程Consul地址。
+这里为了方便使用本机Consul，此程序也支持配置远程Consul地址。
 
 如果本地环境已经配置Consul，保证其正常运行即可。
 
@@ -43,7 +43,7 @@ NuGet包地址：https://www.nuget.org/packages/FireflySoft.LeaderElection
 
             // 参与Leader选举的多个程序应该使用相同的服务名
             // 参与Leader选举的每个程序应该有唯一的服务Id
-            LeaderElectionManager electionManager = new LeaderElectionManager("ElectionService", "ElectionService1", new LeaderElectionOptions());
+            LeaderElectionManager electionManager = new LeaderElectionManager("ElectionService", "ElectionService1", new ConsulElectionOptions());
             electionManager.Watch(LeaderElectCompletedEventHandler);
 
             Console.WriteLine("Start Election...");
