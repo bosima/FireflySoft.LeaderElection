@@ -14,6 +14,7 @@ namespace FireflySoft.LeaderElection
         /// <param name="consulClientConfigOverride"></param>
         public ConsulElectionOptions(Action<ConsulClientConfiguration> consulClientConfigOverride)
         {
+            base.LeaderElectionType = EnumLeaderElectionType.Consul;
             if (consulClientConfigOverride == null)
             {
                 ConsulClient = new ConsulClient();
@@ -30,6 +31,7 @@ namespace FireflySoft.LeaderElection
         /// <param name="consulClient"></param>
         public ConsulElectionOptions(ConsulClient consulClient)
         {
+            base.LeaderElectionType = EnumLeaderElectionType.Consul;
             ConsulClient = consulClient;
         }
 
@@ -38,6 +40,7 @@ namespace FireflySoft.LeaderElection
         /// </summary>
         public ConsulElectionOptions()
         {
+            base.LeaderElectionType = EnumLeaderElectionType.Consul;
             ConsulClient = new ConsulClient();
         }
 

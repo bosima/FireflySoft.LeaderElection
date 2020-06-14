@@ -27,7 +27,8 @@ namespace FireflySoft.LeaderElection
         public int ReElectionSilencePeriod { get; set; }
 
         /// <summary>
-        /// 是否自选举：集成FireflySoft.LeaderElection的程序是否参与选举
+        /// 是否自选举：集成FireflySoft.LeaderElection的程序是否参与选举。
+        /// 目前没有使用这个属性，全部是自选举。
         /// </summary>
         public bool IsSelfElect { get; set; }
     }

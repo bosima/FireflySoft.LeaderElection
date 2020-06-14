@@ -22,7 +22,7 @@ namespace FireflySoft.LeaderElection
         private ConsulKV _consulKV;
 
         /// <summary>
-        /// 注册到Leader选举中
+        /// 注册到Leader选举
         /// </summary>
         /// <param name="serviceName"></param>
         /// <param name="serviceId"></param>

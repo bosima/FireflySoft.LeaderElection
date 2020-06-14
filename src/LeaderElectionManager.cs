@@ -11,7 +11,8 @@ namespace FireflySoft.LeaderElection
         private readonly ILeaderElection _election;
         private readonly string _currentServiceId;
         private const int _defaultOfflineConfirmAmount = 3;
-
+        private int _offlineConfirmAmount;
+        private LeaderElectionState _electState;
 
         /// <summary>
         /// 初始化一个新的Leader选举管理器
@@ -21,6 +22,7 @@ namespace FireflySoft.LeaderElection
         /// <param name="options"></param>
         public LeaderElectionManager(string serviceName, string serviceId, LeaderElectionOptions options)
         {
+            _offlineConfirmAmount = _defaultOfflineConfirmAmount;
             _currentServiceId = serviceId;
             _election = new LeaderElectionFactory().Create(options);
             _election.Register(serviceName, serviceId, options);
@@ -34,8 +36,7 @@ namespace FireflySoft.LeaderElection
         public void Watch(Action<LeaderElectionResult> leaderElectCompletedHandler, CancellationToken cancellationToken = default)
         {
             // 上来就先选举一次，以获取要监控的状态
-            var electState = Elect(leaderElectCompletedHandler, cancellationToken);
-            var offlineConfirmAmount = _defaultOfflineConfirmAmount;
+            _electState = Elect(leaderElectCompletedHandler, cancellationToken);
 
             do
             {
@@ -43,49 +44,15 @@ namespace FireflySoft.LeaderElection
 
                 try
                 {
-                    _election.WatchState(electState, newState =>
+                    _election.WatchState(_electState, newState =>
                     {
-                        // 为空代表全局选举状态不存在或者被移除，则马上启动选举
-                        if (newState == null)
-                        {
-                            electState = Elect(leaderElectCompletedHandler, cancellationToken);
-                            return;
-                        }
-
-                        // Leader下线处理
-                        if (!newState.IsLeaderOnline)
-                        {
-                            // 下线的Leader有优先选举权
-                            if (newState.CurrentLeaderId == _currentServiceId)
-                            {
-                                electState = Elect(leaderElectCompletedHandler, cancellationToken);
-                                return;
-                            }
-
-                            // 其它节点需要确认Leader真的下线了才能发起选举
-                            if (offlineConfirmAmount == 0)
-                            {
-                                electState = Elect(leaderElectCompletedHandler, cancellationToken);
-
-                                // 有选举出新的Leader才需要重新确认
-                                if (electState != null && electState.IsLeaderOnline)
-                                {
-                                    offlineConfirmAmount = _defaultOfflineConfirmAmount;
-                                }
-                                return;
-                            }
-
-                            offlineConfirmAmount--;
-
-                            return;
-                        }
-
-                        offlineConfirmAmount = _defaultOfflineConfirmAmount;
-
+                        _electState = newState;
+                        ProcessState(leaderElectCompletedHandler, newState, cancellationToken);
                     }, cancellationToken);
                 }
                 catch
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     Thread.Sleep(3000);
                 }
             }
@@ -101,6 +68,67 @@ namespace FireflySoft.LeaderElection
             _election.Reset(cancellationToken);
         }
 
+        /// <summary>
+        /// 获取当前服务集群Leader选举状态
+        /// </summary>
+        public LeaderElectionState GetCurrentState()
+        {
+            return _electState;
+        }
+
+        /// <summary>
+        /// 处理选举状态
+        /// </summary>
+        /// <param name="leaderElectCompletedHandler"></param>
+        /// <param name="newState"></param>
+        /// <param name="cancellationToken"></param>
+        private void ProcessState(Action<LeaderElectionResult> leaderElectCompletedHandler, LeaderElectionState newState, CancellationToken cancellationToken)
+        {
+            // 为空代表全局选举状态不存在或者被移除，则马上启动选举
+            if (newState == null)
+            {
+                _electState = Elect(leaderElectCompletedHandler, cancellationToken);
+                return;
+            }
+
+            // Leader下线处理
+            if (!newState.IsLeaderOnline)
+            {
+                // 下线的Leader有优先选举权
+                if (newState.CurrentLeaderId == _currentServiceId)
+                {
+                    _electState = Elect(leaderElectCompletedHandler, cancellationToken);
+                    return;
+                }
+
+                // 其它节点需要确认Leader真的下线了才能发起选举
+                // 真的下线通过连续多次监听到的状态为下线进行认定
+                if (_offlineConfirmAmount == 0)
+                {
+                    _electState = Elect(leaderElectCompletedHandler, cancellationToken);
+
+                    // 有选举出新的Leader才需要重新确认
+                    if (_electState != null && _electState.IsLeaderOnline)
+                    {
+                        _offlineConfirmAmount = _defaultOfflineConfirmAmount;
+                    }
+                    return;
+                }
+
+                _offlineConfirmAmount--;
+
+                return;
+            }
+
+            _offlineConfirmAmount = _defaultOfflineConfirmAmount;
+        }
+
+        /// <summary>
+        /// 发起一次选举，并触发选举完成处理程序
+        /// </summary>
+        /// <param name="leaderElectCompletedHandler"></param>
+        /// <param name="cancellationToken"></param>
+        /// <returns></returns>
         private LeaderElectionState Elect(Action<LeaderElectionResult> leaderElectCompletedHandler, CancellationToken cancellationToken)
         {
             var electResult = _election.Elect(cancellationToken);

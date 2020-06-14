@@ -63,7 +63,7 @@ NuGet包地址：https://www.nuget.org/packages/FireflySoft.LeaderElection
 
 #### 选举沉默期
 
-LeaderElectionOptions中提供了一个重新选举沉默期：ReElectionSilencePeriod，默认15s。应用场景如下：
+LeaderElectionOptions中提供了一个重新选举沉默期：ReElectionSilencePeriod，默认10s。应用场景如下：
 
 当一个程序的Leader状态失效时，它可能仍在处理某些事务，并且不能立即中止。
 这时候如果其它节点马上选举成为Leader，并且开始处理数据，则可能导致数据不一致的状态。
