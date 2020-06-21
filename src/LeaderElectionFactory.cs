@@ -18,6 +18,11 @@ namespace FireflySoft.LeaderElection
                 return new ConsulLeaderElection();
             }
 
+            if (options == null || options.LeaderElectionType == EnumLeaderElectionType.ZooKeeper)
+            {
+                return new ZkLeaderElection();
+            }
+
             throw new NotImplementedException("未实现指定的Leader选举类型");
         }
     }

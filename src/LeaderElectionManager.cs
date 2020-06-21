@@ -13,6 +13,7 @@ namespace FireflySoft.LeaderElection
         private const int _defaultOfflineConfirmAmount = 3;
         private int _offlineConfirmAmount;
         private LeaderElectionState _electState;
+        private Thread _watchThread;
 
         /// <summary>
         /// 初始化一个新的Leader选举管理器
@@ -35,28 +36,39 @@ namespace FireflySoft.LeaderElection
         /// <param name="cancellationToken"></param>
         public void Watch(Action<LeaderElectionResult> leaderElectCompletedHandler, CancellationToken cancellationToken = default)
         {
-            // 上来就先选举一次，以获取要监控的状态
-            _electState = Elect(leaderElectCompletedHandler, cancellationToken);
+            // 启动一个线程进行处理，不阻塞当前线程
+            _watchThread = new Thread(new ThreadStart(() =>
+              {
+                  // 上来就先选举一次，以获取要监控的状态
+                  _electState = Elect(leaderElectCompletedHandler, cancellationToken);
 
-            do
+                  do
+                  {
+                      cancellationToken.ThrowIfCancellationRequested();
+
+                      try
+                      {
+                          _election.WatchState(_electState, newState =>
+                          {
+                              ProcessState(leaderElectCompletedHandler, newState, cancellationToken);
+                          }, cancellationToken);
+                      }
+                      catch (Exception ex)
+                      {
+                          Console.WriteLine(ex);
+                          cancellationToken.ThrowIfCancellationRequested();
+                          Thread.Sleep(3000);
+
+                          // TODO:如果失去与服务端的联系，则应该下线Leader状态
+                      }
+                  }
+                  while (true);
+
+              }))
             {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                try
-                {
-                    _election.WatchState(_electState, newState =>
-                    {
-                        _electState = newState;
-                        ProcessState(leaderElectCompletedHandler, newState, cancellationToken);
-                    }, cancellationToken);
-                }
-                catch
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    Thread.Sleep(3000);
-                }
-            }
-            while (true);
+                IsBackground = true
+            };
+            _watchThread.Start();
         }
 
         /// <summary>
@@ -84,6 +96,10 @@ namespace FireflySoft.LeaderElection
         /// <param name="cancellationToken"></param>
         private void ProcessState(Action<LeaderElectionResult> leaderElectCompletedHandler, LeaderElectionState newState, CancellationToken cancellationToken)
         {
+            Console.Write(_offlineConfirmAmount);
+
+            _electState = newState;
+
             // 为空代表全局选举状态不存在或者被移除，则马上启动选举
             if (newState == null)
             {

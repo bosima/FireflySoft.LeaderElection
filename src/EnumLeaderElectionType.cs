@@ -10,5 +10,10 @@ namespace FireflySoft.LeaderElection
         /// 基于Consul
         /// </summary>
         Consul = 0,
+
+        /// <summary>
+        /// 基于ZooKeeper
+        /// </summary>
+        ZooKeeper = 1,
     }
 }

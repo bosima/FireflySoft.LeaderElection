@@ -8,7 +8,13 @@ namespace ElectionService2
         static void Main(string[] args)
         {
             Console.WriteLine("I am ElectionService2.");
-            LeaderElectionManager electionManager = new LeaderElectionManager("ElectionService", "ElectionService2", new ConsulElectionOptions());
+
+            // Consul
+            // LeaderElectionManager electionManager = new LeaderElectionManager("ElectionService", "ElectionService2", new ConsulElectionOptions());
+
+            // ZooKeeper
+            LeaderElectionManager electionManager = new LeaderElectionManager("ElectionService", "ElectionService2", new ZkElectionOptions());
+
             electionManager.Watch(LeaderElectCompletedEventHandler);
             Console.WriteLine("Start Election...");
             

@@ -11,23 +11,6 @@ namespace FireflySoft.LeaderElection
         /// <summary>
         /// 初始化Consul选举选项的一个新实例
         /// </summary>
-        /// <param name="consulClientConfigOverride"></param>
-        public ConsulElectionOptions(Action<ConsulClientConfiguration> consulClientConfigOverride)
-        {
-            base.LeaderElectionType = EnumLeaderElectionType.Consul;
-            if (consulClientConfigOverride == null)
-            {
-                ConsulClient = new ConsulClient();
-            }
-            else
-            {
-                ConsulClient= new ConsulClient(consulClientConfigOverride);
-            }
-        }
-
-        /// <summary>
-        /// 初始化Consul选举选项的一个新实例
-        /// </summary>
         /// <param name="consulClient"></param>
         public ConsulElectionOptions(ConsulClient consulClient)
         {
@@ -36,7 +19,7 @@ namespace FireflySoft.LeaderElection
         }
 
         /// <summary>
-        /// 初始化Consul选举选项的一个新实例
+        /// 初始化Consul选举选项的一个新实例，默认连接本机Consul Client。
         /// </summary>
         public ConsulElectionOptions()
         {
@@ -48,5 +31,10 @@ namespace FireflySoft.LeaderElection
         /// 获取当前ConsulCleint
         /// </summary>
         public ConsulClient ConsulClient { get; private set; }
+
+        /// <summary>
+        /// 重新选举沉默期：Leader状态丢失后，集群可以重新选举成功的等待时间，单位秒，默认10s
+        /// </summary>
+        public int ReElectionSilencePeriod { get; set; } = 10;
     }
 }
