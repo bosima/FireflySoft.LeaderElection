@@ -23,17 +23,20 @@ namespace FireflySoft.LeaderElection
 
             if (@event.get_Type() == EventType.NodeDeleted)
             {
-                var leaderPath = @event.getPath();
-                try
+                return Task.Run(() =>
                 {
-                    _processPathDeleted?.Invoke(leaderPath);
-                }
-                catch (KeeperException ex)
-                {
-                    Console.WriteLine(ex);
-                }
+                    var leaderPath = @event.getPath();
+                    try
+                    {
+                        _processPathDeleted?.Invoke(leaderPath);
+                    }
+                    catch (KeeperException ex)
+                    {
+                        Console.WriteLine(ex);
+                    }
 
-                _electionDataChangedEvent.Set();
+                    _electionDataChangedEvent.Set();
+                });
             }
 
             return Task.CompletedTask;

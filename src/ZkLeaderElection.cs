@@ -18,7 +18,7 @@ namespace FireflySoft.LeaderElection
         private TimeSpan _confirmWatchInterval = new TimeSpan(0, 0, 10);
 
         private ZkElectionOptions _options;
-        private ZooKeeper _zkClient;
+        private ZkElectionClient _zkElectionClient;
         private ZkElectionPathWatcher _electionWatcher;
         private AutoResetEvent _electionDataChangedEvent;
 
@@ -35,13 +35,13 @@ namespace FireflySoft.LeaderElection
         public void Register(string serviceName, string serviceId, LeaderElectionOptions options)
         {
             _options = (ZkElectionOptions)options;
-            _zkClient = _options.ZkClient;
+            _zkElectionClient = _options.ZkElectionClient;
             _electionRootPath = string.Format("/leader-election/{0}", serviceName);
             _electionFlag = string.Concat(new string[] { _electionRootPath, "/", "flag" });
             _electionLeader = string.Concat(new string[] { _electionRootPath, "/", "leader" });
             _serviceId = serviceId;
             _electionDataChangedEvent = new AutoResetEvent(false);
-            CreateZkPath(_electionRootPath, null, CreateMode.PERSISTENT);
+            CreateElectionRootPath(_electionRootPath);
         }
 
         /// <summary>
@@ -51,12 +51,10 @@ namespace FireflySoft.LeaderElection
         /// <returns></returns>
         public LeaderElectionResult Elect(CancellationToken cancellationToken = default)
         {
-            DataResult flagData;
-            string currentLeaderId = string.Empty;
-            try
+            // 已经存在选举结果
+            string currentLeaderId = _zkElectionClient.GetData(_electionFlag);
+            if (currentLeaderId != null)
             {
-                flagData = _zkClient.getDataAsync(_electionFlag).ConfigureAwait(false).GetAwaiter().GetResult();
-                currentLeaderId = Encoding.UTF8.GetString(flagData.Data);
                 return new LeaderElectionResult()
                 {
                     IsSuccess = false,
@@ -68,50 +66,54 @@ namespace FireflySoft.LeaderElection
                     }
                 };
             }
-            catch (NoNodeException)
+
+            // 发起选举并选举成功的处理
+            currentLeaderId = _serviceId;
+            if (_zkElectionClient.Create(_electionFlag, currentLeaderId, CreateMode.EPHEMERAL))
             {
-                try
+                if (!_zkElectionClient.Create(_electionLeader, currentLeaderId, CreateMode.PERSISTENT))
                 {
-                    currentLeaderId = _serviceId;
-                    var data = Encoding.UTF8.GetBytes(currentLeaderId);
-                    _zkClient.createAsync(_electionFlag, data, Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL).GetAwaiter().GetResult();
-
-                    if (_zkClient.existsAsync(_electionLeader).ConfigureAwait(false).GetAwaiter().GetResult() == null)
-                    {
-                        _zkClient.createAsync(_electionLeader, data, Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT).ConfigureAwait(false).GetAwaiter().GetResult();
-                    }
-                    else
-                    {
-                        _zkClient.setDataAsync(_electionLeader, data).ConfigureAwait(false).GetAwaiter().GetResult();
-                    }
-
-                    return new LeaderElectionResult()
-                    {
-                        IsSuccess = true,
-                        State = new LeaderElectionState()
-                        {
-                            CurrentLeaderId = currentLeaderId,
-                            Data = currentLeaderId,
-                            IsLeaderOnline = true
-                        }
-                    };
+                    _zkElectionClient.Update(_electionLeader, currentLeaderId);
                 }
-                catch (NodeExistsException)
+                return new LeaderElectionResult()
                 {
-                    flagData = _zkClient.getDataAsync(_electionFlag).ConfigureAwait(false).GetAwaiter().GetResult();
-                    currentLeaderId = Encoding.UTF8.GetString(flagData.Data);
-                    return new LeaderElectionResult()
+                    IsSuccess = true,
+                    State = new LeaderElectionState()
                     {
-                        IsSuccess = false,
-                        State = new LeaderElectionState()
-                        {
-                            CurrentLeaderId = currentLeaderId,
-                            Data = currentLeaderId,
-                            IsLeaderOnline = true
-                        }
-                    };
-                }
+                        CurrentLeaderId = currentLeaderId,
+                        Data = currentLeaderId,
+                        IsLeaderOnline = true
+                    }
+                };
             }
+
+            // 选举失败的处理
+            currentLeaderId = _zkElectionClient.GetData(_electionFlag);
+            if (currentLeaderId != null)
+            {
+                return new LeaderElectionResult()
+                {
+                    IsSuccess = false,
+                    State = new LeaderElectionState()
+                    {
+                        CurrentLeaderId = currentLeaderId,
+                        Data = currentLeaderId,
+                        IsLeaderOnline = true
+                    }
+                };
+            }
+
+            // 选举失败但是别的节点也没选举成功
+            return new LeaderElectionResult()
+            {
+                IsSuccess = false,
+                State = new LeaderElectionState()
+                {
+                    CurrentLeaderId = string.Empty,
+                    Data = string.Empty,
+                    IsLeaderOnline = false
+                }
+            };
         }
 
         /// <summary>
@@ -140,9 +142,10 @@ namespace FireflySoft.LeaderElection
                 }, _electionDataChangedEvent);
             }
 
-            var flagExists = _zkClient.existsAsync(_electionFlag, _electionWatcher).ConfigureAwait(false).GetAwaiter().GetResult();
+            var flagExists = _zkElectionClient.Exists(_electionFlag, _electionWatcher);
             if (flagExists != null)
             {
+                Console.WriteLine("wait election flag change");
                 _electionDataChangedEvent.WaitOne();
             }
             else
@@ -155,8 +158,10 @@ namespace FireflySoft.LeaderElection
 
         private void ProcessElectionFlagDeleted(Action<LeaderElectionState> processLatestState)
         {
+            Console.WriteLine("start process election flag deleted...");
+
             // flag deleted, read stable leader info
-            var stableLeader = GetElectionStableLeader();
+            var stableLeader = _zkElectionClient.GetData(_electionLeader);
 
             var newState = new LeaderElectionState()
             {
@@ -168,22 +173,7 @@ namespace FireflySoft.LeaderElection
             processLatestState?.Invoke(newState);
         }
 
-        private string GetElectionStableLeader()
-        {
-            //try
-            //{
-            //    DataResult stableLeaderData = _zkClient.getDataAsync(_electionLeader).ConfigureAwait(false).GetAwaiter().GetResult();
-            //    return Encoding.UTF8.GetString(stableLeaderData.Data);
-            //}
-            //catch (NoNodeException)
-            //{
-            //    // 可能还没有创建
-            //}
-
-            return string.Empty;
-        }
-
-        private void CreateZkPath(string zkPath, string zkValue, CreateMode createMode)
+        private void CreateElectionRootPath(string zkPath)
         {
             zkPath = zkPath.Trim('/');
             var zkDirs = zkPath.Split(',');
@@ -194,22 +184,10 @@ namespace FireflySoft.LeaderElection
                 for (int i = 0; i < zkDirs.Length; i++)
                 {
                     zkDir += "/" + zkDirs[i];
-                    var isExist = _zkClient.existsAsync(zkDir).GetAwaiter().GetResult();
+                    var isExist = _zkElectionClient.Exists(zkDir);
                     if (isExist == null)
                     {
-                        byte[] zkData = null;
-                        if (!string.IsNullOrWhiteSpace(zkValue))
-                        {
-                            zkData = Encoding.UTF8.GetBytes(zkValue);
-                        }
-
-                        try
-                        {
-                            _zkClient.createAsync(zkDir, zkData, Ids.OPEN_ACL_UNSAFE, createMode).ConfigureAwait(false).GetAwaiter().GetResult();
-                        }
-                        catch (NodeExistsException)
-                        {
-                        }
+                        _zkElectionClient.Create(zkDir, null, CreateMode.PERSISTENT);
                     }
                 }
             }

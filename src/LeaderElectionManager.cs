@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Threading;
+using Newtonsoft.Json;
 
 namespace FireflySoft.LeaderElection
 {
@@ -48,8 +49,10 @@ namespace FireflySoft.LeaderElection
 
                       try
                       {
+                          Console.WriteLine("start watch state...");
                           _election.WatchState(_electState, newState =>
                           {
+                              Console.WriteLine("start process latest state...");
                               ProcessState(leaderElectCompletedHandler, newState, cancellationToken);
                           }, cancellationToken);
                       }
@@ -96,7 +99,7 @@ namespace FireflySoft.LeaderElection
         /// <param name="cancellationToken"></param>
         private void ProcessState(Action<LeaderElectionResult> leaderElectCompletedHandler, LeaderElectionState newState, CancellationToken cancellationToken)
         {
-            Console.Write(_offlineConfirmAmount);
+            Console.WriteLine("newState: " + newState == null ? "null" : JsonConvert.SerializeObject(newState));
 
             _electState = newState;
 
@@ -132,6 +135,7 @@ namespace FireflySoft.LeaderElection
                 }
 
                 _offlineConfirmAmount--;
+                Console.WriteLine("leader offline, need confirm: " + _offlineConfirmAmount);
 
                 return;
             }
