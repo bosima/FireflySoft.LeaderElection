@@ -8,12 +8,12 @@ namespace FireflySoft.LeaderElection
 {
     internal class ZkElectionPathWatcher : Watcher
     {
-        private readonly Action<string> _processPathDeleted;
+        private readonly Action<string, EventType> _processPathChanged;
         private readonly AutoResetEvent _electionDataChangedEvent;
 
-        public ZkElectionPathWatcher(Action<string> processPathDeleted, AutoResetEvent electionDataChangedEvent)
+        public ZkElectionPathWatcher(Action<string, EventType> processPathChanged, AutoResetEvent electionDataChangedEvent)
         {
-            _processPathDeleted = processPathDeleted;
+            _processPathChanged = processPathChanged;
             _electionDataChangedEvent = electionDataChangedEvent;
         }
 
@@ -21,14 +21,15 @@ namespace FireflySoft.LeaderElection
         {
             Console.WriteLine("Type:" + @event.GetType() + ",EventType:" + @event.get_Type() + ",State:" + @event.getState());
 
-            if (@event.get_Type() == EventType.NodeDeleted)
+            var eventType = @event.get_Type();
+            if (eventType == EventType.NodeDeleted)
             {
                 return Task.Run(() =>
                 {
                     var leaderPath = @event.getPath();
                     try
                     {
-                        _processPathDeleted?.Invoke(leaderPath);
+                        _processPathChanged?.Invoke(leaderPath, eventType);
                     }
                     catch (KeeperException ex)
                     {

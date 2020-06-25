@@ -33,7 +33,7 @@ namespace FireflySoft.LeaderElection
         public ConsulClient ConsulClient { get; private set; }
 
         /// <summary>
-        /// 重新选举沉默期：Leader状态丢失后，集群可以重新选举成功的等待时间，单位秒，默认10s
+        /// 重新选举沉默期：Leader下线后，集群可以重新选举成功的等待时间，单位秒，默认10s
         /// </summary>
         public int ReElectionSilencePeriod { get; set; } = 10;
     }

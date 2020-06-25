@@ -15,7 +15,8 @@ namespace FireflySoft.LeaderElection
         private string _electionFlag = string.Empty;
         private string _electionLeader = string.Empty;
         private string _serviceId = string.Empty;
-        private TimeSpan _confirmWatchInterval = new TimeSpan(0, 0, 10);
+        private TimeSpan _leaderOfflineConfirmInterval;
+        private bool _isDisconnected;
 
         private ZkElectionOptions _options;
         private ZkElectionClient _zkElectionClient;
@@ -35,7 +36,11 @@ namespace FireflySoft.LeaderElection
         public void Register(string serviceName, string serviceId, LeaderElectionOptions options)
         {
             _options = (ZkElectionOptions)options;
-            _zkElectionClient = _options.ZkElectionClient;
+
+            var watcher = new ZkElectionClientWatcher(ProcessZkConnectEvent);
+            _zkElectionClient = new ZkElectionClient(_options.ConnectionString, _options.SessionTimeout, watcher);
+
+            _leaderOfflineConfirmInterval = _options.LeaderOfflineConfirmInterval;
             _electionRootPath = string.Format("/leader-election/{0}", serviceName);
             _electionFlag = string.Concat(new string[] { _electionRootPath, "/", "flag" });
             _electionLeader = string.Concat(new string[] { _electionRootPath, "/", "leader" });
@@ -51,69 +56,86 @@ namespace FireflySoft.LeaderElection
         /// <returns></returns>
         public LeaderElectionResult Elect(CancellationToken cancellationToken = default)
         {
-            // 已经存在选举结果
-            string currentLeaderId = _zkElectionClient.GetData(_electionFlag);
-            if (currentLeaderId != null)
+            try
             {
+                // 已经存在选举结果
+                string currentLeaderId = _zkElectionClient.GetData(_electionFlag);
+                if (currentLeaderId != null)
+                {
+                    return new LeaderElectionResult()
+                    {
+                        IsSuccess = false,
+                        State = new LeaderElectionState()
+                        {
+                            CurrentLeaderId = currentLeaderId,
+                            Data = currentLeaderId,
+                            IsLeaderOnline = true
+                        }
+                    };
+                }
+
+                // 发起选举并选举成功的处理
+                currentLeaderId = _serviceId;
+                if (_zkElectionClient.Create(_electionFlag, currentLeaderId, CreateMode.EPHEMERAL))
+                {
+                    if (!_zkElectionClient.Create(_electionLeader, currentLeaderId, CreateMode.PERSISTENT))
+                    {
+                        _zkElectionClient.Update(_electionLeader, currentLeaderId);
+                    }
+                    return new LeaderElectionResult()
+                    {
+                        IsSuccess = true,
+                        State = new LeaderElectionState()
+                        {
+                            CurrentLeaderId = currentLeaderId,
+                            Data = currentLeaderId,
+                            IsLeaderOnline = true
+                        }
+                    };
+                }
+
+                // 选举失败的处理
+                currentLeaderId = _zkElectionClient.GetData(_electionFlag);
+                if (currentLeaderId != null)
+                {
+                    return new LeaderElectionResult()
+                    {
+                        IsSuccess = false,
+                        State = new LeaderElectionState()
+                        {
+                            CurrentLeaderId = currentLeaderId,
+                            Data = currentLeaderId,
+                            IsLeaderOnline = true
+                        }
+                    };
+                }
+
+                // 选举失败但是别的节点也没选举成功
                 return new LeaderElectionResult()
                 {
                     IsSuccess = false,
                     State = new LeaderElectionState()
                     {
-                        CurrentLeaderId = currentLeaderId,
-                        Data = currentLeaderId,
-                        IsLeaderOnline = true
+                        CurrentLeaderId = string.Empty,
+                        Data = string.Empty,
+                        IsLeaderOnline = false
                     }
                 };
             }
-
-            // 发起选举并选举成功的处理
-            currentLeaderId = _serviceId;
-            if (_zkElectionClient.Create(_electionFlag, currentLeaderId, CreateMode.EPHEMERAL))
+            catch (Exception ex)
             {
-                if (!_zkElectionClient.Create(_electionLeader, currentLeaderId, CreateMode.PERSISTENT))
-                {
-                    _zkElectionClient.Update(_electionLeader, currentLeaderId);
-                }
-                return new LeaderElectionResult()
-                {
-                    IsSuccess = true,
-                    State = new LeaderElectionState()
-                    {
-                        CurrentLeaderId = currentLeaderId,
-                        Data = currentLeaderId,
-                        IsLeaderOnline = true
-                    }
-                };
-            }
+                Console.WriteLine(ex);
 
-            // 选举失败的处理
-            currentLeaderId = _zkElectionClient.GetData(_electionFlag);
-            if (currentLeaderId != null)
-            {
+                // 这里认为就是操作ZooKeeper的异常
                 return new LeaderElectionResult()
                 {
                     IsSuccess = false,
                     State = new LeaderElectionState()
                     {
-                        CurrentLeaderId = currentLeaderId,
-                        Data = currentLeaderId,
-                        IsLeaderOnline = true
+                        IsDisconnected = true
                     }
                 };
             }
-
-            // 选举失败但是别的节点也没选举成功
-            return new LeaderElectionResult()
-            {
-                IsSuccess = false,
-                State = new LeaderElectionState()
-                {
-                    CurrentLeaderId = string.Empty,
-                    Data = string.Empty,
-                    IsLeaderOnline = false
-                }
-            };
         }
 
         /// <summary>
@@ -123,7 +145,8 @@ namespace FireflySoft.LeaderElection
         /// <returns></returns>
         public bool Reset(CancellationToken cancellationToken = default)
         {
-            return false;
+            // todo:删除flag，删除leader
+            throw new NotImplementedException();
         }
 
         /// <summary>
@@ -136,24 +159,61 @@ namespace FireflySoft.LeaderElection
         {
             if (_electionWatcher == null)
             {
-                _electionWatcher = new ZkElectionPathWatcher(leaderPath =>
+                _electionWatcher = new ZkElectionPathWatcher((leaderPath, eventType) =>
                 {
-                    ProcessElectionFlagDeleted(processLatestState);
+                    if (eventType == EventType.NodeDeleted)
+                    {
+                        ProcessElectionFlagDeleted(processLatestState);
+                    }
                 }, _electionDataChangedEvent);
+            }
+
+            // zk不可用或连接不上
+            if (_isDisconnected)
+            {
+                var newState = new LeaderElectionState()
+                {
+                    IsDisconnected = _isDisconnected
+                };
+                processLatestState?.Invoke(newState);
+                return;
             }
 
             var flagExists = _zkElectionClient.Exists(_electionFlag, _electionWatcher);
             if (flagExists != null)
             {
+                // zk又连接上了
+                if (state != null && state.IsDisconnected && !_isDisconnected)
+                {
+                    ProcessReconnectWithElectionFlag(processLatestState);
+                    return;
+                }
+
                 Console.WriteLine("wait election flag change");
                 _electionDataChangedEvent.WaitOne();
             }
             else
             {
-                // 非leader节点将确认3次，每次确认需要等待一段时间
-                Thread.Sleep(_confirmWatchInterval);
-                ProcessElectionFlagDeleted(processLatestState);
+                // 非leader节点将确认X次，每次确认需要等待一段时间
+                Thread.Sleep(_leaderOfflineConfirmInterval);
+                ProcessElectionFlag(processLatestState);
             }
+        }
+
+        private void ProcessReconnectWithElectionFlag(Action<LeaderElectionState> processLatestState)
+        {
+            Console.WriteLine("start process reconnect...");
+
+            var stableLeader = _zkElectionClient.GetData(_electionFlag);
+
+            var newState = new LeaderElectionState()
+            {
+                IsLeaderOnline = stableLeader != null ? true : false,
+                CurrentLeaderId = stableLeader,
+                Data = stableLeader
+            };
+
+            processLatestState?.Invoke(newState);
         }
 
         private void ProcessElectionFlagDeleted(Action<LeaderElectionState> processLatestState)
@@ -171,6 +231,63 @@ namespace FireflySoft.LeaderElection
             };
 
             processLatestState?.Invoke(newState);
+        }
+
+        private void ProcessElectionFlag(Action<LeaderElectionState> processLatestState)
+        {
+            Console.WriteLine("start process election flag...");
+
+            var flag = _zkElectionClient.GetData(_electionFlag);
+
+            if (flag != null)
+            {
+                var newState = new LeaderElectionState()
+                {
+                    IsLeaderOnline = flag != null ? true : false,
+                    CurrentLeaderId = flag,
+                    Data = flag
+                };
+                processLatestState?.Invoke(newState);
+            }
+            else
+            {
+                ProcessElectionFlagDeleted(processLatestState);
+            }
+        }
+
+        private void ProcessElectionFlagCreated(Action<LeaderElectionState> processLatestState)
+        {
+            Console.WriteLine("start process election flag created...");
+
+            var flag = _zkElectionClient.GetData(_electionFlag);
+
+            var newState = new LeaderElectionState()
+            {
+                IsLeaderOnline = flag != null ? true : false,
+                CurrentLeaderId = flag,
+                Data = flag
+            };
+
+            processLatestState?.Invoke(newState);
+        }
+
+        private void ProcessZkConnectEvent(KeeperState state)
+        {
+            if (state == KeeperState.SyncConnected)
+            {
+                _isDisconnected = false;
+            }
+
+            if (state == KeeperState.Disconnected)
+            {
+                _isDisconnected = true;
+            }
+
+            if (state == KeeperState.Expired)
+            {
+                _isDisconnected = true;
+                _zkElectionClient.Reconnect();
+            }
         }
 
         private void CreateElectionRootPath(string zkPath)

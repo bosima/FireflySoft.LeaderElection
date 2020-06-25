@@ -16,18 +16,18 @@ namespace FireflySoft.LeaderElection
         public ZkElectionOptions(string connectionString = "127.0.0.1:2181", int sessionTimeout = 10000)
         {
             base.LeaderElectionType = EnumLeaderElectionType.ZooKeeper;
-            ZkSessionTimeout = sessionTimeout;
-            ZkElectionClient = new ZkElectionClient(connectionString, ZkSessionTimeout);
+            SessionTimeout = sessionTimeout;
+            ConnectionString = connectionString;
         }
 
         /// <summary>
-        /// 获取当前ZooKeeper Client
+        /// ZooKeeper Server连接字符串
         /// </summary>
-        public ZkElectionClient ZkElectionClient { get; private set; }
+        public string ConnectionString { get; private set; }
 
         /// <summary>
         /// 获取Session超时时间
         /// </summary>
-        public int ZkSessionTimeout { get; private set; }
+        public int SessionTimeout { get; private set; }
     }
 }

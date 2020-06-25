@@ -20,5 +20,10 @@ namespace FireflySoft.LeaderElection
         /// 当前LeaderId
         /// </summary>
         public string CurrentLeaderId { get; set; }
+
+        /// <summary>
+        /// 当前节点是否断开连接，默认false
+        /// </summary>
+        public bool IsDisconnected { get; set; }
     }
 }

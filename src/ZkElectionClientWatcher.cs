@@ -8,23 +8,25 @@ namespace FireflySoft.LeaderElection
 {
     internal class ZkElectionClientWatcher : Watcher
     {
-        private readonly Action _processExpired;
+        private readonly Action<KeeperState> _processConnect;
 
-        public ZkElectionClientWatcher(Action processExpired)
+        public ZkElectionClientWatcher(Action<KeeperState> processConnect)
         {
-            _processExpired = processExpired;
+            _processConnect = processConnect;
         }
 
         public override Task process(WatchedEvent @event)
         {
             Console.WriteLine("Type:" + @event.GetType() + ",EventType:" + @event.get_Type() + ",State:" + @event.getState());
 
-            if (@event.getState() == KeeperState.Expired)
+            var state = @event.getState();
+            if (state == KeeperState.Disconnected
+                || state == KeeperState.Expired
+                || state == KeeperState.SyncConnected)
             {
-                Console.WriteLine("ZooKeeper connection expired");
                 return Task.Run(() =>
                 {
-                    _processExpired?.Invoke();
+                    _processConnect?.Invoke(state);
                 });
             };
 

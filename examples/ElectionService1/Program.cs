@@ -10,10 +10,10 @@ namespace ElectionService1
             Console.WriteLine("I am ElectionService1.");
 
             // Consul
-            // LeaderElectionManager electionManager = new LeaderElectionManager("ElectionService", "ElectionService1", new ConsulElectionOptions());
+            LeaderElectionManager electionManager = new LeaderElectionManager("ElectionService", "ElectionService1", new ConsulElectionOptions());
 
             // ZooKeeper
-            LeaderElectionManager electionManager = new LeaderElectionManager("ElectionService", "ElectionService1", new ZkElectionOptions());
+            // LeaderElectionManager electionManager = new LeaderElectionManager("ElectionService", "ElectionService1", new ZkElectionOptions());
 
             electionManager.Watch(LeaderElectCompletedEventHandler);
             Console.WriteLine("Start Election...");

@@ -10,7 +10,7 @@ namespace FireflySoft.LeaderElection
     /// <summary>
     /// ZooKeeper Election Client
     /// </summary>
-    public class ZkElectionClient
+    internal class ZkElectionClient
     {
         private readonly string _zkConnectionString;
         private readonly int _sessionTimeout;
@@ -22,15 +22,13 @@ namespace FireflySoft.LeaderElection
         /// </summary>
         /// <param name="connectionString"></param>
         /// <param name="sessionTimeout"></param>
-        public ZkElectionClient(string connectionString = "127.0.0.1:2181", int sessionTimeout = 30000)
+        /// <param name="zkElectionClientWatcher"></param>
+        public ZkElectionClient(string connectionString, int sessionTimeout, ZkElectionClientWatcher zkElectionClientWatcher)
         {
             _zkConnectionString = connectionString;
             _sessionTimeout = sessionTimeout;
-            _zkClientWatcher = new ZkElectionClientWatcher(() =>
-            {
-                ConnectServer();
-            });
-            ConnectServer();
+            _zkClientWatcher = zkElectionClientWatcher;
+            Connect();
         }
 
         /// <summary>
@@ -112,9 +110,17 @@ namespace FireflySoft.LeaderElection
         }
 
         /// <summary>
-        /// 连接Zookeeper Server
+        /// 重新发起连接
         /// </summary>
-        private void ConnectServer()
+        public void Reconnect()
+        {
+            Connect();
+        }
+
+        /// <summary>
+        /// 发起连接
+        /// </summary>
+        private void Connect()
         {
             _zk = new ZooKeeper(_zkConnectionString, _sessionTimeout, _zkClientWatcher);
             Console.WriteLine("ZooKeeper Server have Connected");

@@ -12,18 +12,22 @@ namespace FireflySoft.LeaderElection
         public LeaderElectionOptions()
         {
             LeaderElectionType = EnumLeaderElectionType.Consul;
-            IsSelfElect = true;
         }
 
         /// <summary>
         /// Leader选举类型，默认Consul
         /// </summary>
-        public EnumLeaderElectionType LeaderElectionType { get; set; }
+        public EnumLeaderElectionType LeaderElectionType { get; set; } = EnumLeaderElectionType.Consul;
 
         /// <summary>
-        /// 是否自选举：集成FireflySoft.LeaderElection的程序是否参与选举。
-        /// 目前没有使用这个属性，全部是自选举。
+        /// Leader下线后，其它节点发起选举前确认原Leader不会再上线的次数
         /// </summary>
-        public bool IsSelfElect { get; set; }
+        public byte LeaderOfflineConfirmNumber { get; set; } = 3;
+
+        /// <summary>
+        /// Leader下线后，其它节点发起选举前每次确认原Leader不会再上线的时间间隔。
+        /// 由于实现方式，在基于Consul的选举中如果设置了大于0且小于10的值，则自动替换为10。
+        /// </summary>
+        public TimeSpan LeaderOfflineConfirmInterval { get; set; } = TimeSpan.FromSeconds(10);
     }
 }

@@ -11,8 +11,8 @@ namespace FireflySoft.LeaderElection
     {
         private readonly ILeaderElection _election;
         private readonly string _currentServiceId;
-        private const int _defaultOfflineConfirmAmount = 3;
-        private int _offlineConfirmAmount;
+        private byte _defaultOfflineConfirmNumber;
+        private byte _offlineConfirmNumber;
         private LeaderElectionState _electState;
         private Thread _watchThread;
 
@@ -24,7 +24,8 @@ namespace FireflySoft.LeaderElection
         /// <param name="options"></param>
         public LeaderElectionManager(string serviceName, string serviceId, LeaderElectionOptions options)
         {
-            _offlineConfirmAmount = _defaultOfflineConfirmAmount;
+            _defaultOfflineConfirmNumber = options.LeaderOfflineConfirmNumber;
+            _offlineConfirmNumber = _defaultOfflineConfirmNumber;
             _currentServiceId = serviceId;
             _election = new LeaderElectionFactory().Create(options);
             _election.Register(serviceName, serviceId, options);
@@ -61,8 +62,6 @@ namespace FireflySoft.LeaderElection
                           Console.WriteLine(ex);
                           cancellationToken.ThrowIfCancellationRequested();
                           Thread.Sleep(3000);
-
-                          // TODO:如果失去与服务端的联系，则应该下线Leader状态
                       }
                   }
                   while (true);
@@ -99,12 +98,38 @@ namespace FireflySoft.LeaderElection
         /// <param name="cancellationToken"></param>
         private void ProcessState(Action<LeaderElectionResult> leaderElectCompletedHandler, LeaderElectionState newState, CancellationToken cancellationToken)
         {
-            Console.WriteLine("newState: " + newState == null ? "null" : JsonConvert.SerializeObject(newState));
+            Console.WriteLine("newState: " + JsonConvert.SerializeObject(newState));
 
+            var lastIsDisconnected = _electState.IsDisconnected;
             _electState = newState;
 
+            // 本地下线，远程在线，还是leader的处理
+            if (lastIsDisconnected
+                && newState.CurrentLeaderId == _currentServiceId
+                && newState.IsLeaderOnline)
+            {
+                Console.WriteLine("leader back online");
+                leaderElectCompletedHandler?.Invoke(new LeaderElectionResult()
+                {
+                    IsSuccess = true,
+                    State = newState
+                });
+                return;
+            }
+
+            // 断开连接了，自动选举失败
+            if (newState.IsDisconnected)
+            {
+                leaderElectCompletedHandler?.Invoke(new LeaderElectionResult()
+                {
+                    IsSuccess = false,
+                    State = newState
+                });
+                return;
+            }
+
             // 为空代表全局选举状态不存在或者被移除，则马上启动选举
-            if (newState == null)
+            if (string.IsNullOrWhiteSpace(newState.CurrentLeaderId))
             {
                 _electState = Elect(leaderElectCompletedHandler, cancellationToken);
                 return;
@@ -122,25 +147,25 @@ namespace FireflySoft.LeaderElection
 
                 // 其它节点需要确认Leader真的下线了才能发起选举
                 // 真的下线通过连续多次监听到的状态为下线进行认定
-                if (_offlineConfirmAmount == 0)
+                if (_offlineConfirmNumber == 0)
                 {
                     _electState = Elect(leaderElectCompletedHandler, cancellationToken);
 
                     // 有选举出新的Leader才需要重新确认
                     if (_electState != null && _electState.IsLeaderOnline)
                     {
-                        _offlineConfirmAmount = _defaultOfflineConfirmAmount;
+                        _offlineConfirmNumber = _defaultOfflineConfirmNumber;
                     }
                     return;
                 }
 
-                _offlineConfirmAmount--;
-                Console.WriteLine("leader offline, need confirm: " + _offlineConfirmAmount);
+                Console.WriteLine("leader offline, need confirm: " + _offlineConfirmNumber);
+                _offlineConfirmNumber--;
 
                 return;
             }
 
-            _offlineConfirmAmount = _defaultOfflineConfirmAmount;
+            _offlineConfirmNumber = _defaultOfflineConfirmNumber;
         }
 
         /// <summary>

@@ -1,24 +1,25 @@
-﻿using Consul;
-using System;
+﻿using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
 using System.Threading;
-using System.Threading.Tasks;
+using Consul;
 
 namespace FireflySoft.LeaderElection
 {
-    /// <summary>
-    /// Consul服务管理相关
-    /// </summary>
-    internal  class ConsulService
+    public class ConsulElectionClient
     {
-        private readonly ConsulClient client;
+        private readonly ConsulClient _client;
 
-        public ConsulService(ConsulClient client)
+        /// <summary>
+        /// The ttl pass thread.
+        /// </summary>
+        private Thread ttlPassThread;
+
+        public ConsulElectionClient(ConsulClient _client)
         {
-            this.client = client;
+            this._client = _client;
         }
+
+        #region Agent
 
         /// <summary>
         /// 更新服务健康检查的TTL
@@ -29,7 +30,7 @@ namespace FireflySoft.LeaderElection
             Retry(() =>
             {
                 var checkId = "CHECK:" + serviceId;
-                client.Agent.PassTTL(checkId, "Alive").Wait();
+                _client.Agent.PassTTL(checkId, "Alive").Wait();
             }, 2);
         }
 
@@ -41,7 +42,7 @@ namespace FireflySoft.LeaderElection
         {
             var deRegResult = Retry(() =>
             {
-                return client.Agent.ServiceDeregister(serviceId).Result;
+                return _client.Agent.ServiceDeregister(serviceId).ConfigureAwait(false).GetAwaiter().GetResult();
             }, 2);
 
             if (deRegResult.StatusCode != System.Net.HttpStatusCode.OK)
@@ -61,7 +62,7 @@ namespace FireflySoft.LeaderElection
         {
             var deRegResult = Retry(() =>
             {
-                return client.Agent.CheckDeregister(checkId).Result;
+                return _client.Agent.CheckDeregister(checkId).ConfigureAwait(false).GetAwaiter().GetResult();
             }, 2);
 
             if (deRegResult.StatusCode != System.Net.HttpStatusCode.OK)
@@ -71,11 +72,6 @@ namespace FireflySoft.LeaderElection
 
             return true;
         }
-
-        /// <summary>
-        /// The ttl pass thread.
-        /// </summary>
-        private Thread ttlPassThread;
 
         /// <summary>
         /// 注册服务，使用此方法注册的服务需要定时Pass TTL
@@ -88,7 +84,7 @@ namespace FireflySoft.LeaderElection
         {
             var deRegResult = Retry(() =>
             {
-                return client.Agent.ServiceDeregister(serviceId).Result;
+                return _client.Agent.ServiceDeregister(serviceId).ConfigureAwait(false).GetAwaiter().GetResult();
             }, 2);
 
             if (deRegResult.StatusCode != System.Net.HttpStatusCode.OK)
@@ -98,11 +94,11 @@ namespace FireflySoft.LeaderElection
 
             var regResult = Retry(() =>
             {
-                return client.Agent.ServiceRegister(new AgentServiceRegistration()
+                return _client.Agent.ServiceRegister(new AgentServiceRegistration()
                 {
                     ID = serviceId,
                     Name = serviceName
-                }).Result;
+                }).ConfigureAwait(false).GetAwaiter().GetResult();
 
             }, 2);
 
@@ -114,7 +110,7 @@ namespace FireflySoft.LeaderElection
             string checkId = "CHECK:" + serviceId;
             var regCheckResult = Retry(() =>
             {
-                return client.Agent.CheckRegister(new AgentCheckRegistration()
+                return _client.Agent.CheckRegister(new AgentCheckRegistration()
                 {
                     ID = checkId,
                     Name = "CHECK " + serviceId,
@@ -123,7 +119,7 @@ namespace FireflySoft.LeaderElection
                     ServiceID = serviceId,
                     Status = HealthStatus.Warning,
                     TTL = new TimeSpan(0, 0, ttl)
-                }).Result;
+                }).ConfigureAwait(false).GetAwaiter().GetResult();
             }, 2);
 
             if (regCheckResult.StatusCode != System.Net.HttpStatusCode.OK)
@@ -157,6 +153,112 @@ namespace FireflySoft.LeaderElection
 
             return checkId;
         }
+        #endregion
+
+        #region KeyValue
+        /// <summary>
+        /// 创建一个KVPair实例
+        /// </summary>
+        /// <param name="key"></param>
+        /// <returns></returns>
+        public KVPair Create(string key)
+        {
+            return new KVPair(key);
+        }
+
+        /// <summary>
+        /// 阻塞获取对应Key的值
+        /// </summary>
+        /// <param name="key"></param>
+        /// <param name="waitTime"></param>
+        /// <param name="waitIndex"></param>
+        /// <param name="cancellationToken"></param>
+        /// <returns></returns>
+        public KVPair BlockGet(string key, TimeSpan waitTime, ulong waitIndex, CancellationToken cancellationToken = default)
+        {
+            return Retry(() =>
+            {
+                return _client.KV.Get(key, new QueryOptions()
+                {
+                    WaitTime = waitTime,
+                    WaitIndex = waitIndex
+                }, cancellationToken).ConfigureAwait(false).GetAwaiter().GetResult().Response;
+            }, 1);
+        }
+
+        /// <summary>
+        /// 获取对应Key的字符串值
+        /// </summary>
+        /// <param name="kv"></param>
+        /// <param name="cancellationToken"></param>
+        /// <returns></returns>
+        public bool Acquire(KVPair kv, CancellationToken cancellationToken = default)
+        {
+            return Retry(() =>
+            {
+                return _client.KV.Acquire(kv, cancellationToken).ConfigureAwait(false).GetAwaiter().GetResult().Response;
+            }, 1);
+        }
+
+        /// <summary>
+        /// 获取对应Key的字符串值
+        /// </summary>
+        /// <returns>The get.</returns>
+        /// <param name="key">Key.</param>
+        /// <param name="cancellationToken">Cancellation token.</param>
+        public KVPair Get(string key, CancellationToken cancellationToken = default)
+        {
+            return Retry(() =>
+            {
+                return _client.KV.Get(key, cancellationToken).ConfigureAwait(false).GetAwaiter().GetResult().Response;
+            }, 2);
+        }
+
+        /// <summary>
+        /// 删除对应Key
+        /// </summary>
+        /// <param name="key"></param>
+        /// <param name="cancellationToken"></param>
+        /// <returns></returns>
+        public bool Delete(string key, CancellationToken cancellationToken = default)
+        {
+            return Retry(() =>
+            {
+                return _client.KV.Delete(key, cancellationToken).ConfigureAwait(false).GetAwaiter().GetResult().Response;
+            }, 2);
+        }
+
+        /// <summary>
+        /// 创建Session
+        /// </summary>
+        /// <returns>The session.</returns>
+        /// <param name="checkIds">Check identifier.</param>
+        /// <param name="lockDelay">Lock delay.</param>
+        public string CreateSession(List<string> checkIds, int lockDelay = 15)
+        {
+            return Retry(() =>
+            {
+                return _client.Session.Create(new SessionEntry()
+                {
+                    Checks = checkIds,
+                    LockDelay = new TimeSpan(0, 0, lockDelay),
+
+                }).ConfigureAwait(false).GetAwaiter().GetResult().Response;
+            }, 2);
+        }
+
+        /// <summary>
+        /// 移除Session
+        /// </summary>
+        /// <returns></returns>
+        public bool RemoveSession(string sessionId)
+        {
+            return Retry(() =>
+            {
+                return _client.Session.Destroy(sessionId).ConfigureAwait(false).GetAwaiter().GetResult().Response;
+            }, 2);
+        }
+        #endregion
 
         private void Retry(Action action, int retryTimes)
         {
